@@ -82,16 +82,51 @@ const char* html = R"rawliteral(
 </html>
 )rawliteral";
 
-void setup(){
+void setup() {
   Serial.begin(115200);
-  //Setup AP mode
-  WiFi.softAP(ssid, password);
-  Serial.println("Access Point Started" + WiFi.softAPIP().toString() + WiFi.softAPSSID() + "Password:" + WiFi.softAPgetPassword()+ "Channel:" + String(WiFi.softAPgetChannel()) + "\n");
+  
+  // Connect to Wi-Fi
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Connecting to WiFi...");
+  }
+  Serial.println("Connected to WiFi");
+
   // Initialize Servos
   for (int i = 0; i < 8; i++) {
-    servos[i].servo.attach(config[i].pin);
+    servos[i].servo.attach(servos[i].pin);
     servos[i].servo.write(servos[i].restAngle);
+    servos[i].currentAngle = servos[i].restAngle;
+    servos[i].targetAngle = servos[i].restAngle;
   }
-  // Web route
-  server.on("/", HTTP)
+
+  // Web Server Routes
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send_P(200, "text/html", html);
+  });
+
+  server.on("/set", HTTP_GET, [](AsyncWebServerRequest *request){
+    if (request->hasParam("id") && request->hasParam("val")) {
+      int id = request->getParam("id")->value().toInt();
+      int val = request->getParam("val")->value().toInt();
+      if (id >= 0 && id < 8) {
+        val = constrain(val, servos[id].minAngle, servos[id].maxAngle);
+        servos[id].targetAngle = val;
+      }
+    }
+    request->send(200);
+  });
+
+  server.begin();
+}
+
+void loop() {
+  // Smoothly update servo positions
+  for (int i = 0; i < 8; i++) {
+    if (servos[i].currentAngle != servos[i].targetAngle) {
+      servos[i].currentAngle += (servos[i].targetAngle - servos[i].currentAngle) * servos[i].smoothingFactor;
+      servos[i].servo.write((int)servos[i].currentAngle);
+    }
+  }
 }
