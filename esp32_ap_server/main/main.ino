@@ -2,9 +2,6 @@
 #include <WebServer.h>
 #include <ESP32Servo.h>
 
-#include <format>
-#include <string>
-
 const char *ssid = "HAULS";
 const char *password = "tomato";
 
@@ -13,7 +10,7 @@ bool serverStarted = false;
 unsigned long startTimer = 0;
 // Servo Configuration
 
-struct Servoservos
+struct ServoConfig
 {
   int pin;
   int minAngle;
@@ -25,72 +22,88 @@ struct Servoservos
   Servo servo;
 };
 
-Servoservos servos[8] = {
+ServoConfig servos[8] = {
     {13, 90, 150, 90, 90.0, 90, 0.08}, // Gripper
-    {12, 0, 180, 90, 90.0, 90, 0.08},  // Wrist Rotate
-    {14, 0, 180, 30, 30.0, 30, 0.08},  // Wrist Pitch
+    {12, 0, 180, 30, 30.0, 30, 0.08},  // Wrist Rotate
+    {14, 0, 180, 90, 90.0, 90, 0.08},  // Wrist Pitch
     {27, 20, 180, 180, 180.0, 180, 0.08}, // Elbow
     {26, 45, 180, 180, 180.0, 180, 0.08}, // Shoulder
     {25, 10, 170, 90, 90.0, 90, 0.08}, // Base
     {5, 10, 170, 90, 90.0, 90, 0.08}, // Camera Pan
     {18, 10, 170, 90, 90.0, 90, 0.08}  // Camera Tilt
 };
-std::string html = R"rawliteral(
+// The HTML uses a JavaScript array to store the initial values
+const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        body { font-family: Arial; text-align: center; background: #222; color: white; }
-        .container { max-width: 400px; margin: auto; padding: 20px; }
-        input[type=range] { width: 100%; margin: 15px 0; }
-        h2 { color: #00d4ff; }
-        .section { border: 1px solid #444; padding: 10px; margin-bottom: 20px; border-radius: 10px; }
-    </style>
+<style>
+  body { font-family: sans-serif; text-align: center; background: #1a1a1a; color: #eee; padding: 20px; }
+  .section { background: #2d2d2d; border-radius: 15px; padding: 15px; margin-bottom: 20px; }
+  input[type=range] { width: 80%; height: 20px; margin: 15px 0; accent-color: #00d4ff; }
+  h2 { color: #00d4ff; }
+  .val-label { font-weight: bold; color: #00d4ff; }
+</style>
 </head>
 <body>
-    <div class="container">
-        <h2>Robot Arm Control</h2>
-        <div class="section">
-            <h3>Arm Joints</h3>
-            <div id="arm-sliders"></div>
-        </div>
-        <div class="section">
-            <h3>Camera Pan/Tilt</h3>
-            <div id="cam-sliders"></div>
-        </div>
+  <h2>Robot Arm & Camera</h2>
+    <div class="section">
+      <h3>Arm Control</h3>
+      <div id="arm"></div>
     </div>
-    <script>
-        function createSlider(i, label, parentId, restValue=90) {
-            let div = document.createElement('div');
-            div.innerHTML = `<label>${label}</label>
-                             <input type="range" min="0" max="180" value="${restValue}" 
-                             oninput="sendValue(${i}, this.value)">`;
-            document.getElementById(parentId).appendChild(div);
-        }
+  <div class="section">
+    <h3>Camera Pan/Tilt</h3>
+    <div id="cam"></div>
+  </div>
+  <script>
+    // These values are injected by the ESP32
+    const labels = ["Gripper", "Wrist P", "Wrist R", "Elbow", "Shoulder", "Base", "Cam Pan", "Cam Tilt"];
 
-        const labels = ["Gripper", "Wrist Rotate", "Wrist Pitch", "Elbow", "Shoulder", "Base", "Cam Pan", "Cam Tilt"];
-        for(let i=0; i<6; i++) createSlider(i, labels[i], 'arm-sliders', %d);
-        for(let i=6; i<8; i++) createSlider(i, labels[i], 'cam-sliders');
+    function createS(i, label, pId) {
+    const parent = document.getElementById(pId);
+    if(!parent) return;
 
-        let lastSend = 0;
-        function sendValue(id, val) {
-            let now = Date.now();
-            if (now - lastSend > 50) { // Throttling for stability
-                fetch(`/set?id=${id}&val=${val}`);
-                lastSend = now;
-            }
-        }
-    </script>
-</body>
+      let d = document.createElement('div');
+      d.innerHTML = `<label>${label}: <span class="val-label" id="v${i}">${startVals[i]}</span>°</label><br>
+                    <input type="range" min="0" max="180" value="${startVals[i]}" oninput="send(${i},this.value)">`;
+      parent.appendChild(d);
+    }
+
+    // This functions runs on page load to create sliders for each servo. It uses the startVals array for initial positions and labels for display.
+    function initSliders(){
+    for(let i=0; i<6; i++) createS(i, labels[i], 'arm');
+    for(let i=6; i<8; i++) createS(i, labels[i], 'cam');
+}
+
+    let last = 0;
+    function send(id, val) {
+      document.getElementById('v'+id).innerText = val; // Update the UI number
+      if (Date.now() - last > 50) {
+        fetch(`/set?id=${id}&val=${val}`);
+        last = Date.now();
+      }
+    }
+      window.onload = initSliders;
+  </script>
+  </body>
 </html>
 )rawliteral";
 
-std::string index_html = std::format(html, servos[0].restAngle, servos[1].restAngle, servos[2].restAngle, 
-                                        servos[3].restAngle, servos[4].restAngle, servos[5].restAngle);
 void handleRoot() 
 {
-  server.send(200, "text/html", index_html);
+  // We create a string defines the JavaScript array with the current rest angles of the servos, which will be injected into the HTML template. This allows the sliders to start at the correct positions when the page loads.
+  String scriptInjection = "<script> const startVals = [";
+  for (int i =0; i < 8; i++){
+    scriptInjection += String(servos[i].restAngle);
+    if (i<7) scriptInjection += ", ";
+  }
+  scriptInjection += "]; </script>";
+
+  String full_html = scriptInjection + String(index_html);
+  // Send the script part first, then the rest of the HTML
+  server.sendHeader("Cache-Control", "no-cache");
+  server.send(200, "text/html", full_html);
 }
 
 void handleSet() 
