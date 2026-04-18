@@ -4,6 +4,7 @@
 const int xPin = 34;
 const int yPin = 35;
 const int buttonPin = 32;
+const int potPin = 33;
 
 #define LED 2
 
@@ -11,7 +12,7 @@ uint8_t broadcastAddress[] = {0x68, 0x25, 0xDD, 0x32, 0x82, 0x5C};
 
 typedef struct struct_message {
   char a[32];
-  int x, y;
+  int x, y, pot;
   bool button;
 } struct_message;
 
@@ -26,9 +27,9 @@ void OnDataSent(const wifi_tx_info_t *info, esp_now_send_status_t status) {
   if (status == ESP_NOW_SEND_SUCCESS) {
     isConnected = true;
     lastSendTime = millis(); // reset timeout
-    Serial.println("✅ Delivery Success");
+    // Serial.println("✅ Delivery Success");
   } else {
-    Serial.println("❌ Delivery Fail");
+    // Serial.println("❌ Delivery Fail");
   }
 }
 
@@ -60,19 +61,22 @@ void loop() {
   int xValue = analogRead(xPin);
   int yValue = analogRead(yPin);
   bool buttonPressed = digitalRead(buttonPin) == LOW;
+  int potValue = analogRead(potPin);
 
   int mappedX = map(xValue, 0, 4095, 0, 100);
   int mappedY = map(yValue, 0, 4095, 0, 100);
+  int mappedPot = map(potValue, 0, 4095, 0, 100);
 
   myData.x = mappedX;
   myData.y = mappedY;
   myData.button = buttonPressed;
+  myData.pot = mappedPot;
   strcpy(myData.a, "Joystick Data");
 
   esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &myData, sizeof(myData));
 
   if (result == ESP_OK) {
-    Serial.printf("📤 Sent: X=%d, Y=%d, Btn=%s\n", mappedX, mappedY, buttonPressed ? "Pressed" : "Released");
+    Serial.printf("📤 Sent: X=%d, Y=%d, Pot=%d, Btn=%s\n", mappedX, mappedY, mappedPot, buttonPressed ? "Pressed" : "Released");
   } else {
     Serial.println("🚫 Error sending the data");
   }

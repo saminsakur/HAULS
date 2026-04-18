@@ -15,14 +15,13 @@
 #define LED 2
 #define TIMEOUT 5000
 
-int speed = 180;
 
 BTS7960 motorController1(LEN1, REN1, LPWM1, RPWM1);
 BTS7960 motorController2(LEN2, REN2, LPWM2, RPWM2);
 
 typedef struct struct_message {
   char a[32];
-  int x, y;
+  int x, y, pot;
   bool button;
 } struct_message;
 
@@ -32,15 +31,17 @@ unsigned long lastRecvTime = 0;
 void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   memcpy(&myData, incomingData, sizeof(myData));
 
-  Serial.print("Message: "); Serial.println(myData.a);
-  Serial.print("Xaxis: "); Serial.println(myData.x);
-  Serial.print("Yaxis: "); Serial.println(myData.y);
-  Serial.print("Button: "); Serial.println(myData.button ? "Pressed" : "Released");
+  Serial.print("Message: "); Serial.print(myData.a);
+  Serial.print("Xaxis: "); Serial.print(myData.x);
+  Serial.print("Yaxis: "); Serial.print(myData.y);
+  Serial.print("Button: "); Serial.print(myData.button ? "Pressed" : "Released");
+  Serial.print("Speed: ");Serial.println(myData.pot);
   Serial.println();
 
   digitalWrite(LED, HIGH);
   lastRecvTime = millis();
 
+  speed = myData.pot;
   // Basic Joystick-based Movement
   if (myData.y == 0 && myData.x!=0) {
     motorController1.TurnLeft(speed);
